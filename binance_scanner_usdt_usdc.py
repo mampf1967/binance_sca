@@ -1253,7 +1253,7 @@ async def update_round(usdt_pairs, round_number):
                             if bl_alert:
                                 alerts.append(bl_alert)
                                 log_message(
-                                    f"{bl_alert['candle_time_vienna']} {split_pair_symbol(pair)} BL ({bl_alert['price_change_percent']:.2f}%)/{bl_alert['turnover']:,.2f}",
+                                    f"{bl_alert['candle_time_vienna']} {split_pair_symbol(pair)} BL {bl_alert['price_change_percent']:.2f}/{bl_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
@@ -1263,7 +1263,7 @@ async def update_round(usdt_pairs, round_number):
                             if bm_alert:
                                 alerts.append(bm_alert)
                                 log_message(
-                                    f"{bm_alert['candle_time_vienna']} {split_pair_symbol(pair)} BM ({bm_alert['price_change_percent']:.2f}%)/{bm_alert['turnover']:,.2f}",
+                                    f"{bm_alert['candle_time_vienna']} {split_pair_symbol(pair)} BM {bm_alert['price_change_percent']:.2f}/{bm_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
@@ -1281,7 +1281,7 @@ async def update_round(usdt_pairs, round_number):
                             if bs_alert:
                                 alerts.append(bs_alert)
                                 log_message(
-                                    f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) +{bs_alert['total_gain_percent']:.2f}%/{bs_alert['turnover']:,.2f}",
+                                    f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) {bs_alert['total_gain_percent']:.2f}/{bs_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
@@ -1290,7 +1290,7 @@ async def update_round(usdt_pairs, round_number):
                              if bc_alert:
                                  alerts.append(bc_alert)
                                  log_message(
-                                     f"{bc_alert['candle_time_vienna']} {split_pair_symbol(pair)} BC({bc_alert['consecutive_count']})/{bc_alert['turnover']:,.2f}",
+                                     f"{bc_alert['candle_time_vienna']} {split_pair_symbol(pair)} BC({bc_alert['consecutive_count']}) {bc_alert['total_gain_percent']:.2f}/{bc_alert['turnover']:,.2f}",
                                      is_alert=True
                                  )
 
