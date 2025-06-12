@@ -1205,15 +1205,14 @@ async def update_round(usdt_pairs, round_number):
                                     f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) {bs_alert['total_gain_percent']:.2f}/{bs_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
-
-                         if ALERT_CONFIG["alerts"]["bullish_consecutive"]["enabled"]:
-                             bc_alert = check_for_bc_alert(pair, pair_candles[pair])
-                             if bc_alert:
-                                 alerts.append(bc_alert)
-                                 log_message(
-                                     f"{bc_alert['candle_time_vienna']} {split_pair_symbol(pair)} BC({bc_alert['consecutive_count']}) {bc_alert['total_gain_percent']:.2f}/{bc_alert['turnover']:,.2f}",
-                                     is_alert=True
-                                 )
+                        if ALERT_CONFIG["alerts"]["bullish_consecutive"]["enabled"]:
+                            bc_alert = check_for_bc_alert(pair, pair_candles[pair])
+                            if bc_alert:
+                                alerts.append(bc_alert)
+                                log_message(
+                                    f"{bc_alert['candle_time_vienna']} {split_pair_symbol(pair)} BC({bc_alert['consecutive_count']}) {bc_alert['total_gain_percent']:.2f}/{bc_alert['turnover']:,.2f}",
+                                    is_alert=True
+                                )
 
                 except Exception as e:
                     log_message(f"Error processing pair {pair}: {str(e)}")
