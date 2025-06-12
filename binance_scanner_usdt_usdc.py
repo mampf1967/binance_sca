@@ -47,6 +47,18 @@ ALERT_CONFIG = {
             "min_total_series_gain": 0.5,
             "min_turnover": 500.0,
             "debug": False
+        },
+        "bullish_consecutive": {  # BC Alert
+            "enabled": True,
+            "min_consecutive": 4,  # Minimum candles in series
+            "max_consecutive": 20,  # Maximum candles before reset
+            "min_total_gain_percent": 0.5,  # Optional: Min total gain % (0.0 = any non-bearish series)
+            "include_doji": True,   # Explicitly flag dojis as allowed
+            "max_dojis_long_series": 3,  # Max allowed dojis in series >6 candles
+            "max_dojis_short_series": 2,  # Max allowed dojis in series ≤6 candles
+            "require_increasing_closes": False,  # Optional: enforce higher closes
+            "min_turnover": 500.0,  # Optional: filter low-volume patterns
+            "debug": False
         }
     }
 }
@@ -486,15 +498,6 @@ async def update_pair_data(pair: str, current_minute: datetime) -> Tuple[bool, D
             await asyncio.sleep(1)
 
     return success, stats
-
-# ==================== ALERT FUNCTIONS ====================
-# (Copy all the alert functions from bybit_scanner_2.py exactly as they are)
-# These include:
-# - check_for_long_bullish_candle()
-# - check_for_marubozo_bullish_candle()
-# - check_for_bf_alert()
-# - check_for_bs_alert()
-# - split_pair_symbol()
 
 # ==================== BULLISH LONG CANDLE (BL) ALERT BEGINN ==================================
 
@@ -1032,6 +1035,114 @@ def check_for_bs_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
 
 # ==================== BULLISH SERIES OF CANDLES (BS) ALERT END ============================
 
+# ==================== BULLISH CONSECUTIVE OF CANDLES (BC) ALERT BEGIN =====================
+
+def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Bullish Consecutive (BC) Alert:
+    Detects consecutive non-bearish candles (close >= open), with configurable doji tolerance.
+    Strict doji definition: open == close
+    """
+    config = ALERT_CONFIG["alerts"]["bullish_consecutive"]
+    if not config["enabled"]:
+        return None
+
+    min_consecutive = config["min_consecutive"]
+    debug_mode = config["debug"]
+
+    if len(candles) < min_consecutive:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Not enough candles ({len(candles)} < {min_consecutive})")
+        return None
+
+    consecutive_count = 0
+    doji_count = 0
+    turnover = 0.0
+    series_start_open = None
+    series_end_close = None
+
+    # Iterate backwards (newest to oldest)
+    for i in range(len(candles) - 1, -1, -1):
+        candle = candles[i]
+        open_price = float(candle[1])
+        close_price = float(candle[4])
+        candle_turnover = float(candle[6])
+
+        # Check for non-bearish candle (close >= open)
+        if close_price >= open_price:
+            consecutive_count += 1
+            turnover += candle_turnover
+
+            # Check if this is a doji (strict equality)
+            if open_price == close_price:
+                doji_count += 1
+
+            # Track series boundaries
+            if series_end_close is None:
+                series_end_close = close_price
+            series_start_open = open_price
+
+            # Exit if max consecutive reached
+            if consecutive_count >= config["max_consecutive"]:
+                break
+        else:
+            break  # Series ends on first bearish candle
+
+    # Validate minimum consecutive count
+    if consecutive_count < min_consecutive:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Only {consecutive_count}/{min_consecutive} candles")
+        return None
+
+    # Check doji count against configured limits
+    max_allowed_dojis = (
+        config["max_dojis_long_series"] if consecutive_count > 6 
+        else config["max_dojis_short_series"]
+    )
+    
+    if doji_count > max_allowed_dojis:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Too many dojis ({doji_count} > {max_allowed_dojis} allowed)")
+        return None
+
+    # Calculate total gain percentage
+    if series_start_open is None or series_end_close is None or series_start_open <= 0:
+        return None
+
+    total_gain_percent = ((series_end_close - series_start_open) / series_start_open) * 100
+
+    # Check minimum gain filter
+    if total_gain_percent < config["min_total_gain_percent"]:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Gain {total_gain_percent:.2f}% < {config['min_total_gain_percent']}%")
+        return None
+
+    # Check minimum turnover
+    if turnover < config["min_turnover"]:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Turnover {turnover:,.2f} < {config['min_turnover']}")
+        return None
+
+    # Prepare alert
+    latest_candle = candles[-1]
+    candle_time = datetime.fromtimestamp(latest_candle[0] / 1000, tz=timezone.utc)
+    vienna_time = get_vienna_time(candle_time)
+
+    return {
+        "pair": pair,
+        "alert_type": "BC",
+        "candle_time_vienna": vienna_time.strftime("%H:%M"),
+        "consecutive_count": consecutive_count,
+        "doji_count": doji_count,
+        "total_gain_percent": round(total_gain_percent, 2),
+        "turnover": turnover,
+        "series_start_price": series_start_open,
+        "series_end_price": series_end_close,
+        "status": "valid"
+    }
+
+# ==================== BULLISH CONSECUTIVE OF CANDLES (BC) ALERT END =======================
+
 def split_pair_symbol(pair: str) -> str:
     """Convert symbol pairs like BTCUSDT to BTC USDT"""
     if pair.endswith('USDT'):
@@ -1083,7 +1194,7 @@ async def update_round(usdt_pairs, round_number):
                             if bl_alert:
                                 alerts.append(bl_alert)
                                 log_message(
-                                    f"{bl_alert['candle_time_vienna']} {split_pair_symbol(pair)} BL ({bl_alert['price_change_percent']:.2f}%)/{bl_alert['turnover']:,.2f}",
+                                    f"{bl_alert['candle_time_vienna']} {split_pair_symbol(pair)} BL {bl_alert['price_change_percent']:.2f}/{bl_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
@@ -1093,7 +1204,7 @@ async def update_round(usdt_pairs, round_number):
                             if bm_alert:
                                 alerts.append(bm_alert)
                                 log_message(
-                                    f"{bm_alert['candle_time_vienna']} {split_pair_symbol(pair)} BM ({bm_alert['price_change_percent']:.2f}%)/{bm_alert['turnover']:,.2f}",
+                                    f"{bm_alert['candle_time_vienna']} {split_pair_symbol(pair)} BM {bm_alert['price_change_percent']:.2f}/{bm_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
@@ -1111,7 +1222,15 @@ async def update_round(usdt_pairs, round_number):
                             if bs_alert:
                                 alerts.append(bs_alert)
                                 log_message(
-                                    f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) +{bs_alert['total_gain_percent']:.2f}%/{bs_alert['turnover']:,.2f}",
+                                    f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) {bs_alert['total_gain_percent']:.2f}/{bs_alert['turnover']:,.2f}",
+                                    is_alert=True
+                                )
+                        if ALERT_CONFIG["alerts"]["bullish_consecutive"]["enabled"]:
+                            bc_alert = check_for_bc_alert(pair, pair_candles[pair])
+                            if bc_alert:
+                                alerts.append(bc_alert)
+                                log_message(
+                                    f"{bc_alert['candle_time_vienna']} {split_pair_symbol(pair)} BC({bc_alert['consecutive_count']}) {bc_alert['total_gain_percent']:.2f}/{bc_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
 
