@@ -47,7 +47,7 @@ ALERT_CONFIG = {
             "min_total_series_gain": 0.5,
             "min_turnover": 500.0,
             "debug": False
-        }
+        },
         "bullish_consecutive": {  # BC Alert
             "enabled": True,
             "min_consecutive": 3,  # Minimum candles in series
@@ -1036,85 +1036,6 @@ def check_for_bs_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
 # ==================== BULLISH CONSECUTIVE OF CANDLES (BC) ALERT BEGIN =====================
 
 def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Bullish Consecutive (BC) Alert: 
-    Detects consecutive non-bearish candles (close >= open), including dojis.
-    No minimum price change required.
-    """
-    if not ALERT_CONFIG["alerts"]["bullish_consecutive"]["enabled"]:
-        return None
-
-    config = ALERT_CONFIG["alerts"]["bullish_consecutive"]
-    min_consecutive = config["min_consecutive"]
-    debug_mode = config["debug"]
-
-    if len(candles) < min_consecutive:
-        if debug_mode:
-            log_message(f"[BC DEBUG] {pair}: Not enough candles ({len(candles)} < {min_consecutive})")
-        return None
-
-    consecutive_count = 0
-    turnover = 0.0
-    series_start_open = None
-    series_end_close = None
-
-    # Iterate backwards (from newest to oldest candle)
-    for i in range(len(candles) - 1, -1, -1):
-        candle = candles[i]
-        open_price = float(candle[1])
-        close_price = float(candle[4])
-
-        # Check for non-bearish candle (close >= open)
-        if close_price >= open_price:
-            consecutive_count += 1
-            turnover += float(candle[6])  # Add turnover
-
-            # Track series boundaries
-            if series_end_close is None:
-                series_end_close = close_price
-            series_start_open = open_price
-
-            # Early exit if max consecutive reached
-            if consecutive_count >= config["max_consecutive"]:
-                break
-        else:
-            break  # Series ends on first bearish candle
-
-    # Validate minimum consecutive count
-    if consecutive_count < min_consecutive:
-        if debug_mode:
-            log_message(f"[BC DEBUG] {pair}: Only {consecutive_count}/{min_consecutive} consecutive candles")
-        return None
-
-    # Check minimum turnover
-    if turnover < config["min_turnover"]:
-        if debug_mode:
-            log_message(f"[BC DEBUG] {pair}: Turnover {turnover} < {config['min_turnover']}")
-        return None
-
-    # Optional: Check for increasing closes
-    if config["require_increasing_closes"]:
-        closes = [float(c[4]) for c in candles[-consecutive_count:]]
-        if any(closes[i] <= closes[i+1] for i in range(len(closes)-1)):
-            if debug_mode:
-                log_message(f"[BC DEBUG] {pair}: Closes not monotonically increasing")
-            return None
-
-    # Prepare alert
-    latest_candle = candles[-1]
-    candle_time = datetime.fromtimestamp(latest_candle[0] / 1000, tz=timezone.utc)
-    vienna_time = get_vienna_time(candle_time)
-
-    return {
-        "pair": pair,
-        "alert_type": "BC",
-        "candle_time_vienna": vienna_time.strftime("%H:%M"),
-        "consecutive_count": consecutive_count,
-        "turnover": turnover,
-        "series_start_price": series_start_open,
-        "series_end_price": series_end_close,
-        "status": "valid"
-    }def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str, Any]]:
     """
     Bullish Consecutive (BC) Alert:
     Detects consecutive non-bearish candles (close >= open, including dojis).
