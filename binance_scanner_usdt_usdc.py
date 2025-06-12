@@ -96,11 +96,11 @@ def setup_logging(enable_logging: bool):
 
 def log_message(message: str, is_alert=False):
     timestamp = datetime.now(timezone.utc).astimezone(timezone(TIMEZONE_CONFIG["vienna_offset"])).strftime("%H:%M:%S")
-    
+
     if ALERT_CONFIG["enable_logging"] and log_file:
         log_file.write(f"{timestamp} {message}\n")
         log_file.flush()
-    
+
     if is_alert or message.startswith(("Starting Binance", "PHASE", "PREPARING", "Scanner stopped")):
         if is_alert:
             print(message)
@@ -174,7 +174,7 @@ async def fetch_ohlc_for_pair(pair: str, params: Dict[str, Any]) -> Tuple[str, O
                 if response.status == 200:
                     data = await response.json()
                     used_weight = response.headers.get("X-MBX-USED-WEIGHT-1m", "N/A")
-                    
+
                     # Binance returns: [Open time, Open, High, Low, Close, Volume, Close time, ...]
                     converted_data = [
                         [
@@ -208,21 +208,21 @@ async def fetch_ohlc_for_pair(pair: str, params: Dict[str, Any]) -> Tuple[str, O
 async def backfill_gaps(pair: str, gaps: List[Tuple[int, int]]) -> bool:
     if not gaps:
         return True
-    
+
     session = await get_session()
     max_gap_minutes = 35
     max_retries = 3
-    
+
     for gap_start, gap_end in gaps:
         gap_duration_minutes = (gap_end - gap_start) // 60000 + 1
-        
+
         if gap_duration_minutes > max_gap_minutes:
             log_message(f"Gap too large to backfill for {pair}: {gap_duration_minutes} minutes (max {max_gap_minutes})")
             continue
-        
+
         retry_count = 0
         success = False
-        
+
         while retry_count < max_retries and not success:
             try:
                 params = {
@@ -232,7 +232,7 @@ async def backfill_gaps(pair: str, gaps: List[Tuple[int, int]]) -> bool:
                     'endTime': gap_end,
                     'limit': gap_duration_minutes
                 }
-                
+
                 async with session.get(f"{BASE_URL}/api/v3/klines", params=params) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -248,7 +248,7 @@ async def backfill_gaps(pair: str, gaps: List[Tuple[int, int]]) -> bool:
                             ] 
                             for candle in data
                         ]
-                        
+
                         if backfilled_candles:
                             existing_candles = pair_candles.get(pair, [])
                             merged = existing_candles + backfilled_candles
@@ -269,7 +269,7 @@ async def backfill_gaps(pair: str, gaps: List[Tuple[int, int]]) -> bool:
                 log_message(f"Error during backfill for {pair}: {e}")
                 retry_count += 1
                 await asyncio.sleep(1)
-    
+
     current_gaps = detect_gaps(pair_candles.get(pair, []))
     return len(current_gaps) == 0
 
@@ -306,30 +306,30 @@ def calculate_moving_averages(candles: List[List[Any]], window: int = MOVING_AVE
 def detect_gaps(candles: List[List[Any]], interval_ms: int = 60000) -> List[Tuple[int, int]]:
     if not candles or len(candles) < 2:
         return []
-    
+
     sorted_candles = sorted(candles, key=lambda x: x[0])
     gaps = []
-    
+
     for i in range(1, len(sorted_candles)):
         current_time = sorted_candles[i][0]
         previous_time = sorted_candles[i-1][0]
         expected_time = previous_time + interval_ms
-        
+
         if current_time > expected_time:
             gaps.append((expected_time, current_time - interval_ms))
-    
+
     return gaps
 
 def save_candles_to_csv(pair_candles: Dict[str, List[List[Any]]], prefix: str = "initial"):
     if not CSV_CONFIG["save_binance_scanner_csv"]:
         return
-    
+
     if not os.path.exists(LOG_FOLDER):
         os.makedirs(LOG_FOLDER)
-    
+
     vienna_time = get_vienna_time()
     filename = f"{LOG_FOLDER}/{vienna_time.strftime('%Y%m%d_%H%M')}_Binance_Scanner_{prefix}.csv"
-    
+
     try:
         with open(filename, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
@@ -337,7 +337,7 @@ def save_candles_to_csv(pair_candles: Dict[str, List[List[Any]]], prefix: str = 
                 'pair', 'timestamp', 'open_time_utc', 'open_time_vienna', 
                 'open', 'high', 'low', 'close', 'volume', 'turnover'
             ])
-            
+
             for pair, candles in pair_candles.items():
                 for candle in candles:
                     utc_time = datetime.fromtimestamp(candle[0]/1000, tz=timezone.utc)
@@ -354,7 +354,7 @@ def save_candles_to_csv(pair_candles: Dict[str, List[List[Any]]], prefix: str = 
                         candle[5],  # volume
                         candle[6]   # turnover
                     ])
-        
+
         if CSV_CONFIG["save_binance_scanner_csv"]:
             log_message(f"Candle data saved to: {filename}")
     except Exception as e:
@@ -397,12 +397,12 @@ async def initial_fetch(usdt_pairs):
 
                 if valid_candles:
                     pair_candles[pair] = valid_candles
-                    
+
                     gaps = detect_gaps(valid_candles)
                     if gaps:
                         log_message(f"Found {len(gaps)} gaps in initial data for {pair}")
                         await backfill_gaps(pair, gaps)
-                    
+
                     batch_pairs_processed += 1
                 await asyncio.sleep(0.02)
 
@@ -450,14 +450,14 @@ async def update_pair_data(pair: str, current_minute: datetime) -> Tuple[bool, D
                 if pair in pair_candles:
                     last_candle_time = pair_candles[pair][-1][0] if pair_candles[pair] else 0
                     expected_next_time = last_candle_time + 60000
-                    
+
                     if new_candle[0] > expected_next_time:
                         gap_start = expected_next_time
                         gap_end = new_candle[0] - 60000
                         gaps = [(gap_start, gap_end)]
                         log_message(f"Detected gap for {pair} before new candle - attempting backfill")
                         await backfill_gaps(pair, gaps)
-                    
+
                     if len(pair_candles[pair]) >= CANDLE_HISTORY_CONFIG["required_history"]:
                         pair_candles[pair].pop(0)
                     pair_candles[pair].append(new_candle)
@@ -505,26 +505,26 @@ def check_for_long_bullish_candle(
 ) -> Optional[Dict[str, Any]]:
     if not ALERT_CONFIG["alerts"]["bullish_long"]["enabled"]:
         return None
-    
+
     open_price = float(candle[1])
     close_price = float(candle[4])
     turnover = float(candle[6])
-    
+
     # Check minimum turnover first
     if turnover < ALERT_CONFIG["alerts"]["bullish_long"]["min_turnover"]:
         return None
-    
+
     # First check if it's bullish and meets minimum percentage requirement
     if close_price <= open_price:
         return None
-    
+
     price_change_percent = ((close_price - open_price) / open_price) * 100
     if price_change_percent < min_bullish_percentage:
         return None
-    
+
     candle_time = datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc)
     vienna_time = get_vienna_time(candle_time)
-    
+
     return {
         "pair": pair,
         # "candle_time_vienna": vienna_time.strftime("%H:%M:%S"),
@@ -548,7 +548,7 @@ def check_for_marubozo_bullish_candle(
 
     # Extract prices with float conversion
     open_price, high_price, low_price, close_price, volume, turnover = map(float, candle[1:7])
-    
+
     # Check minimum turnover first
     if turnover < ALERT_CONFIG["alerts"]["bullish_marubozo"]["min_turnover"]:
         return None
@@ -609,64 +609,64 @@ def check_for_bf_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
     # Skip if BF alerts are disabled in config
     if not ALERT_CONFIG["alerts"]["bullish_flag"]["enabled"]:
         return None
-    
+
     # Validate input
     if not candles or len(candles) < 5:
         return None
-    
+
     # Get and validate configuration parameters
     config = ALERT_CONFIG["alerts"]["bullish_flag"]
     min_change = config["min_candle_change_percent"]
-    
+
     # Validate configuration
     if config["min_bullish_consecutive"] > config["max_bullish_consecutive"]:
         log_message(f"Invalid BF config: min_bullish_consecutive > max_bullish_consecutive")
         return None
-    
+
     if config["min_bearish_consecutive"] > config["max_bearish_consecutive"]:
         log_message(f"Invalid BF config: min_bearish_consecutive > max_bearish_consecutive")
         return None
-    
+
     try:
         # --- STEP 1: Verify latest candle is bearish ---
         latest_candle = candles[-1]
         if len(latest_candle) < 5:
             log_message(f"Invalid candle format for {pair}")
             return None
-            
+
         latest_open = float(latest_candle[1])
         latest_close = float(latest_candle[4])
-        
+
         # Avoid division by zero
         if latest_open == 0:
             log_message(f"Zero open price for {pair}")
             return None
-            
+
         latest_change = abs((latest_close - latest_open) / latest_open) * 100
-        
+
         # Latest candle must be bearish with sufficient change
         if latest_change < min_change or latest_close >= latest_open:
             return None
-        
+
         # --- STEP 2: Count consecutive bearish candles from end ---
         bearish_count = 0
         first_bearish_open = None  # Open price of FIRST bearish candle in sequence
         last_bearish_close = None  # Close price of LAST bearish candle in sequence
         turnover = 0.0
-        
+
         for i in range(len(candles) - 1, -1, -1):  # Iterate backwards
             candle = candles[i]
             if len(candle) < 5:
                 break
-                
+
             open_price = float(candle[1])
             close_price = float(candle[4])
-            
+
             if open_price == 0:
                 break
-                
+
             change_percent = abs((close_price - open_price) / open_price) * 100
-            
+
             # Check if candle is bearish with sufficient change
             if change_percent >= min_change and close_price < open_price:
                 bearish_count += 1
@@ -676,30 +676,30 @@ def check_for_bf_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
                 first_bearish_open = open_price   # This will end up being the FIRST bearish candle's open
             else:
                 break  # Stop at first non-bearish candle
-        
+
         # Verify bearish count is within configured range
         if not (config["min_bearish_consecutive"] <= bearish_count <= config["max_bearish_consecutive"]):
             return None
-        
+
         # --- STEP 3: Count bullish candles before bearish sequence ---
         bullish_count = 0
         bullish_start_price = None  # Open price of FIRST bullish candle
         bullish_end_price = None   # Close price of LAST bullish candle
         start_idx = len(candles) - bearish_count - 1  # Start before bearish sequence
-        
+
         for i in range(start_idx, -1, -1):  # Iterate backwards
             candle = candles[i]
             if len(candle) < 5:
                 break
-                
+
             open_price = float(candle[1])
             close_price = float(candle[4])
-            
+
             if open_price == 0:
                 break
-                
+
             change_percent = abs((close_price - open_price) / open_price) * 100
-            
+
             # Check if candle is bullish with sufficient change
             if change_percent >= min_change and close_price > open_price:
                 bullish_count += 1
@@ -709,37 +709,37 @@ def check_for_bf_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
                 bullish_start_price = open_price  # This will end up being the FIRST bullish candle's open
             else:
                 break  # Stop at first non-bullish candle
-        
+
         # Verify bullish count is within configured range
         if not (config["min_bullish_consecutive"] <= bullish_count <= config["max_bullish_consecutive"]):
             return None
-        
+
         # --- STEP 4: Validate pattern requirements ---
         # Requirement 1: More bullish than bearish candles
         if bullish_count <= bearish_count:
             return None
-        
+
         # Requirement 2: Bearish drop <= max % of bullish gain
         if not all([bullish_start_price, bullish_end_price, first_bearish_open, last_bearish_close]):
             return None
-        
+
         bullish_gain = bullish_end_price - bullish_start_price
         bearish_drop = first_bearish_open - last_bearish_close
-        
+
         if bullish_gain <= 0:  # Must have positive gain
             return None
-        
+
         bearish_drop_percent = (bearish_drop / bullish_gain) * 100
-        
+
         # Enhanced debug logging
         if config["debug"]:
             latest_time = datetime.fromtimestamp(latest_candle[0] / 1000, tz=timezone.utc)
             vienna_time = get_vienna_time(latest_time)
-            
+
             # Calculate actual percentages for clarity
             bullish_gain_percent = ((bullish_end_price - bullish_start_price) / bullish_start_price) * 100
             bearish_drop_actual_percent = ((first_bearish_open - last_bearish_close) / first_bearish_open) * 100
-            
+
             debug_info = f"""
 [DEBUG] {pair} BF Pattern Analysis at {vienna_time.strftime('%H:%M:%S')}:
 Pattern Structure: {bullish_count} bullish + {bearish_count} bearish candles
@@ -750,22 +750,22 @@ Bearish Drop Amount: {bearish_drop:.6f}
 Bearish Drop as % of Bullish Gain: {bearish_drop_percent:.2f}%
 Max Allowed Drop: {config['max_bearish_drop_percent']}%
 Pattern Valid: {bearish_drop_percent <= config['max_bearish_drop_percent']}"""
-            
+
             log_message(debug_info)
-        
+
         if bearish_drop_percent > config["max_bearish_drop_percent"]:
             return None
-        
+
         # Check minimum cumulative turnover for BF alert
         if turnover < ALERT_CONFIG["alerts"]["bullish_flag"]["min_turnover"]:
             if config["debug"]:
                 log_message(f"[BF DEBUG] {pair}: Turnover {turnover:,.2f} < required {ALERT_CONFIG['alerts']['bullish_flag']['min_turnover']}")
             return None
-        
+
         # --- Pattern validated - create alert ---
         candle_time = datetime.fromtimestamp(latest_candle[0] / 1000, tz=timezone.utc)
         vienna_time = get_vienna_time(candle_time)
-        
+
         return {
             "pair": pair,
             "alert_type": "BF",
@@ -777,7 +777,7 @@ Pattern Valid: {bearish_drop_percent <= config['max_bearish_drop_percent']}"""
             "turnover": turnover,
             "status": "valid"
         }
-        
+
     except (ValueError, IndexError, TypeError, ZeroDivisionError) as e:
         log_message(f"Error processing BF pattern for {pair}: {str(e)}")
         return None
@@ -985,12 +985,12 @@ def check_for_bs_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
             if debug_mode:
                 log_message(f"[BS DEBUG] {pair}: Turnover {turnover:,.2f} < required {ALERT_CONFIG['alerts']['bullish_series']['min_turnover']}")
             return None
-            
+
         # Calculate additional metrics
         avg_candle_gain = sum(individual_gains) / len(individual_gains) if individual_gains else 0
         min_candle_gain = min(individual_gains) if individual_gains else 0
         max_candle_gain = max(individual_gains) if individual_gains else 0
-        
+
         # Get alert timestamp from the most recent candle
         latest_candle = candles[-1]
         candle_time = datetime.fromtimestamp(latest_candle[0] / 1000, tz=timezone.utc)
@@ -1035,28 +1035,28 @@ def check_for_bs_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
 def split_pair_symbol(pair: str) -> str:
     """Convert symbol pairs like BTCUSDT to BTC USDT"""
     if pair.endswith('USDT'):
-        return f"{pair[:-4]} USDT"
+        return f"{pair[:-4]}"
     return pair
 
 async def update_round(usdt_pairs, round_number):
     log_message(f"=== Starting update round {round_number} ===")
-    
+
     start_time = time.time()
     current_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     log_message(f"Updating data for minute: {current_minute.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    
+
     alerts = []
     updated_stats = {}
     update_count = 0
-    
+
     batch_size = 100
     batches = [usdt_pairs[i:i + batch_size] for i in range(0, len(usdt_pairs), batch_size)]
-    
+
     for batch_index, batch in enumerate(batches):
         log_message(f"Processing batch {batch_index + 1}/{len(batches)} ({len(batch)} pairs)")
         tasks = [update_pair_data(pair, current_minute) for pair in batch]
         results = await asyncio.gather(*tasks)
-        
+
         for i, (success, stats) in enumerate(results):
             pair = batch[i]
             if success:
@@ -1065,17 +1065,17 @@ async def update_round(usdt_pairs, round_number):
                         volume_ma, price_length_ma, total_range_ma = calculate_moving_averages(pair_candles[pair])
                         if None in (volume_ma, price_length_ma, total_range_ma):
                             continue
-                            
+
                         stats.update({
                             "volume_ma": volume_ma,
                             "price_length_ma": price_length_ma,
                             "total_range_ma": total_range_ma,
                             "candle_time": datetime.fromtimestamp(pair_candles[pair][-1][0]/1000, tz=timezone.utc).strftime('%H:%M:%S')
                         })
-                        
+
                         updated_stats[pair] = stats
                         update_count += 1
-                        
+
                         # Check alerts
                         if ALERT_CONFIG["alerts"]["bullish_long"]["enabled"]:
                             latest_candle = pair_candles[pair][-1]
@@ -1086,7 +1086,7 @@ async def update_round(usdt_pairs, round_number):
                                     f"{bl_alert['candle_time_vienna']} {split_pair_symbol(pair)} BL ({bl_alert['price_change_percent']:.2f}%)/{bl_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
-                        
+
                         if ALERT_CONFIG["alerts"]["bullish_marubozo"]["enabled"]:
                             latest_candle = pair_candles[pair][-1]
                             bm_alert = check_for_marubozo_bullish_candle(pair, latest_candle)
@@ -1096,7 +1096,7 @@ async def update_round(usdt_pairs, round_number):
                                     f"{bm_alert['candle_time_vienna']} {split_pair_symbol(pair)} BM ({bm_alert['price_change_percent']:.2f}%)/{bm_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
-                                
+
                         if ALERT_CONFIG["alerts"]["bullish_flag"]["enabled"]:
                             bf_alert = check_for_bf_alert(pair, pair_candles[pair])
                             if bf_alert:
@@ -1105,7 +1105,7 @@ async def update_round(usdt_pairs, round_number):
                                     f"{bf_alert['candle_time_vienna']} {split_pair_symbol(pair)} BF ({bf_alert['bullish_count']}+{bf_alert['bearish_count']})/{bf_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
-                            
+
                         if ALERT_CONFIG["alerts"]["bullish_series"]["enabled"]:
                             bs_alert = check_for_bs_alert(pair, pair_candles[pair])
                             if bs_alert:
@@ -1114,22 +1114,22 @@ async def update_round(usdt_pairs, round_number):
                                     f"{bs_alert['candle_time_vienna']} {split_pair_symbol(pair)} BS({bs_alert['consecutive_count']}) +{bs_alert['total_gain_percent']:.2f}%/{bs_alert['turnover']:,.2f}",
                                     is_alert=True
                                 )
-                
+
                 except Exception as e:
                     log_message(f"Error processing pair {pair}: {str(e)}")
                     continue
-            
+
             await asyncio.sleep(0.02)
 
     save_candles_to_csv(pair_candles, f"update_{round_number}")
 
     end_time = time.time()
     execution_time = end_time - start_time
-    
+
     log_message(f"Successfully updated pairs: {update_count}/{len(usdt_pairs)}")
     log_message(f"Alerts found: {len(alerts)}")
     log_message(f"Update execution time: {execution_time:.2f} seconds")
-    
+
     return updated_stats, alerts
 
 async def wait_until_next_minute_plus_5():
@@ -1146,26 +1146,26 @@ async def fetch_ohlc_and_update():
         log_message("Starting Binance Scanner")
         log_message("First waiting for next minute mark...")
         await wait_until_next_minute_plus_5()
-        
+
         log_message("\n=== PHASE 1: FETCHING INITIAL DATA ===")
         usdt_pairs = await fetch_usdt_pairs_with_usdc_counterparts()
         log_message(f"Found {len(usdt_pairs)} USDT pairs with USDC counterparts")
-        
+
         await initial_fetch(usdt_pairs)
-        
+
         log_message("\n=== PHASE 2: STARTING LIVE UPDATES ===")
         log_message(f"Will fetch {CANDLE_HISTORY_CONFIG['update_limit']} new candles each minute")
         round_number = 1
-        
+
         while True:
             log_message(f"\n=== PREPARING ROUND {round_number} ===")
             await wait_until_next_minute_plus_5()
-            
+
             log_message(f"Starting update round {round_number}")
             updated_stats, alerts = await update_round(usdt_pairs, round_number)
-            
+
             round_number += 1
-            
+
     except Exception as e:
         log_message(f"Fatal error: {str(e)}")
         import traceback
@@ -1180,7 +1180,7 @@ async def fetch_ohlc_and_update():
 async def main():
     if not os.path.exists(LOG_FOLDER):
         os.makedirs(LOG_FOLDER)
-    
+
     log_message("Starting Binance Real-time Scanner (Spot Market)...")
     log_message("Only scanning USDT pairs that have USDC counterparts")
     log_message("Waiting for first data collection at the next minute mark...")
