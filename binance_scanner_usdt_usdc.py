@@ -52,7 +52,7 @@ ALERT_CONFIG = {
             "enabled": True,
             "min_consecutive": 4,  # Minimum candles in series
             "max_consecutive": 20,  # Maximum candles before reset
-            "min_total_gain_percent": 0.0,  # Optional: Min total gain % (0.0 = any non-bearish series)
+            "min_total_gain_percent": 0.5,  # Optional: Min total gain % (0.0 = any non-bearish series)
             "include_doji": True,   # Explicitly flag dojis as allowed
             "max_dojis_long_series": 3,  # Max allowed dojis in series >6 candles
             "max_dojis_short_series": 2,  # Max allowed dojis in series ≤6 candles
