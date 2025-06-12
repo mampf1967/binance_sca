@@ -50,12 +50,12 @@ ALERT_CONFIG = {
         },
         "bullish_consecutive": {  # BC Alert
             "enabled": True,
-            "min_consecutive": 3,  # Minimum candles in series
-            "max_consecutive": 15,  # Maximum candles before reset
+            "min_consecutive": 4,  # Minimum candles in series
+            "max_consecutive": 20,  # Maximum candles before reset
             "min_total_gain_percent": 0.0,  # Optional: Min total gain % (0.0 = any non-bearish series)
             "include_doji": True,   # Explicitly flag dojis as allowed
             "require_increasing_closes": False,  # Optional: enforce higher closes
-            "min_turnover": 50.0,  # Optional: filter low-volume patterns
+            "min_turnover": 500.0,  # Optional: filter low-volume patterns
             "debug": False
         }
     }
