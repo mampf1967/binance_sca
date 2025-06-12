@@ -54,6 +54,8 @@ ALERT_CONFIG = {
             "max_consecutive": 20,  # Maximum candles before reset
             "min_total_gain_percent": 0.0,  # Optional: Min total gain % (0.0 = any non-bearish series)
             "include_doji": True,   # Explicitly flag dojis as allowed
+            "max_dojis_long_series": 3,  # Max allowed dojis in series >6 candles
+            "max_dojis_short_series": 2,  # Max allowed dojis in series ≤6 candles
             "require_increasing_closes": False,  # Optional: enforce higher closes
             "min_turnover": 500.0,  # Optional: filter low-volume patterns
             "debug": False
@@ -1038,8 +1040,8 @@ def check_for_bs_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
 def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str, Any]]:
     """
     Bullish Consecutive (BC) Alert:
-    Detects consecutive non-bearish candles (close >= open, including dojis).
-    Calculates total % gain across the series.
+    Detects consecutive non-bearish candles (close >= open), with configurable doji tolerance.
+    Strict doji definition: open == close
     """
     config = ALERT_CONFIG["alerts"]["bullish_consecutive"]
     if not config["enabled"]:
@@ -1054,6 +1056,7 @@ def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
         return None
 
     consecutive_count = 0
+    doji_count = 0
     turnover = 0.0
     series_start_open = None
     series_end_close = None
@@ -1063,16 +1066,21 @@ def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
         candle = candles[i]
         open_price = float(candle[1])
         close_price = float(candle[4])
+        candle_turnover = float(candle[6])
 
         # Check for non-bearish candle (close >= open)
         if close_price >= open_price:
             consecutive_count += 1
-            turnover += float(candle[6])  # Add turnover
+            turnover += candle_turnover
+
+            # Check if this is a doji (strict equality)
+            if open_price == close_price:
+                doji_count += 1
 
             # Track series boundaries
             if series_end_close is None:
-                series_end_close = close_price  # Latest close in series
-            series_start_open = open_price      # Earliest open in series
+                series_end_close = close_price
+            series_start_open = open_price
 
             # Exit if max consecutive reached
             if consecutive_count >= config["max_consecutive"]:
@@ -1086,13 +1094,24 @@ def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
             log_message(f"[BC DEBUG] {pair}: Only {consecutive_count}/{min_consecutive} candles")
         return None
 
+    # Check doji count against configured limits
+    max_allowed_dojis = (
+        config["max_dojis_long_series"] if consecutive_count > 6 
+        else config["max_dojis_short_series"]
+    )
+    
+    if doji_count > max_allowed_dojis:
+        if debug_mode:
+            log_message(f"[BC DEBUG] {pair}: Too many dojis ({doji_count} > {max_allowed_dojis} allowed)")
+        return None
+
     # Calculate total gain percentage
     if series_start_open is None or series_end_close is None or series_start_open <= 0:
         return None
 
     total_gain_percent = ((series_end_close - series_start_open) / series_start_open) * 100
 
-    # Check minimum gain filter (if enabled)
+    # Check minimum gain filter
     if total_gain_percent < config["min_total_gain_percent"]:
         if debug_mode:
             log_message(f"[BC DEBUG] {pair}: Gain {total_gain_percent:.2f}% < {config['min_total_gain_percent']}%")
@@ -1114,7 +1133,8 @@ def check_for_bc_alert(pair: str, candles: List[List[Any]]) -> Optional[Dict[str
         "alert_type": "BC",
         "candle_time_vienna": vienna_time.strftime("%H:%M"),
         "consecutive_count": consecutive_count,
-        "total_gain_percent": round(total_gain_percent, 2),  # Added % gain
+        "doji_count": doji_count,
+        "total_gain_percent": round(total_gain_percent, 2),
         "turnover": turnover,
         "series_start_price": series_start_open,
         "series_end_price": series_end_close,
